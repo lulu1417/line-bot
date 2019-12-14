@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Mobile;
 use App\Product;
 use App\Record;
+use ErrorException;
+use http\Exception;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Http\Request;
@@ -53,24 +55,49 @@ class BotController extends Controller
                 }else{
                     Record::create([
                         'userId' => $user_id,
-                        'key' => 'model',
+                        'key' => 'title_like',
                         'value' => $text,
                     ]);
-                    $param = Record::all()->toArray();
+                    $param=[];
+                    foreach (Record::all()->toArray() as $rec) {
+                        $param[$rec['key']]=$rec['value'];
+                    }
+                    $param['_limit'] = 5;
+
                     $http = new Client();
-                    $response = $http->get('https://ptt-crawler-gdg.herokuapp.com/posts', $param);
-                    $replies = json_decode($response->getBody()->getContents());
-                    $replies = array_map(function ($p) {
-                        return ['title' => $p->title, 'url' => $p->url];
-                    }, $replies);
-                    Log::debug($replies);
+                    $response = $http->request('GET',
+                        'https://ptt-crawler-gdg.herokuapp.com/posts',
+                        ['query' => $param]);
+                    Log::debug($param);
+                    $getbody = json_decode($response ->getBody()->getContents());
+                    $getbody = array_map(function ($resp){
+                        try{
+                            return [
+                                'title' => $resp->title,
+                                'url'=>$resp->url
+                            ];
+                        }catch (ErrorException $e){
+                            return [
+                                'title' => '',
+                                'url' => ''
+                            ];
+                        }
+                    }, $getbody);
+                    $getbody = array_filter($getbody,function ($p){
+                        return $p['title']!='' && $p['url']!='';
+                    });
+                    Log::debug($getbody);
+
+
                     $msg = new MultiMessageBuilder();
-                    foreach ($replies as $reply) {
-                        $_msg = new TextMessageBuilder($reply);
+                    foreach ($getbody as $reply) {
+                        $_msg = new TextMessageBuilder($reply['title'].' '.$reply['url']);
                         $msg->add($_msg);
                     }
+                    $bot->replyMessage($request->events[0]['replyToken'], $msg);
                     DB::table('mobiles')->truncate();
                     DB::table('records')->truncate();
+                    return response()->json([$getbody]);
 
                 }
 
@@ -84,7 +111,7 @@ class BotController extends Controller
                     $user->update(['text' => $text, 'status' => 3]);
                     Record::create([
                         'userId' => $user_id,
-                        'key' => 'country',
+                        'key' => 'county_like',
                         'value' => $text,
                     ]);
                 }
@@ -94,10 +121,10 @@ class BotController extends Controller
                     $reply = new TextMessageBuilder($reply);
                     $bot->replyMessage($request->events[0]['replyToken'], $reply);
                     return;
-                } elseif (strpos($text, '賣')) {
-                    $text = "買";
-                } elseif (strpos($text, '買')) {
-                    $text = "買";
+                } elseif (strpos($text, '賣')!==false) {
+                    $text = "buy";
+                } elseif (strpos($text, '買')!==false) {
+                    $text = "sell";
 
                 }
                 $reply = "請問您要搜尋的縣市為? ex:台北/台中/台南";
@@ -203,28 +230,4 @@ class BotController extends Controller
         $displayName = $intent->getDisplayName();
         return response()->json($displayName);
     }
-    public function area(Request $request)
-    {
-        $http = new Client();
-        $response = $http->get('https://ptt-crawler-gdg.herokuapp.com/posts');
-        $getbody = json_decode($response ->getBody()->getContents());
-        $getbody=array_map(function ($resp){
-            try{
-                return [
-                    'title' => $resp->title,
-                    'url'=>$resp->url
-                ];
-            }catch (Exception $e){
-                return [
-                    'title' => '',
-                    'url' => ''
-                ];
-            }
-        }, $getbody);
-        $getbody=array_filter($getbody,function ($p){
-            return $p['title']!='' && $p['url']!='';
-        });
-        return response()->json([$getbody]);
-    }
-
 }
