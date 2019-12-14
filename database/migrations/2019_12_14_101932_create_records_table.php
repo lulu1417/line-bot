@@ -15,11 +15,9 @@ class CreateRecordsTable extends Migration
     {
         Schema::create('records', function (Blueprint $table) {
             $table->bigIncrements('id');
-            $table->string('user_id');
-            $table->string('type');
-            $table->string('zone');
-            $table->string('country');
-            $table->string('model');
+            $table->string('userId');
+            $table->string('key');
+            $table->string('value');
             $table->timestamps();
         });
     }

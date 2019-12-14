@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Mobile;
 use App\Product;
+use App\Record;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -43,40 +45,88 @@ class BotController extends Controller
     }
 
     function chat(Request $request){
+
         Log::info($request->all());
         $httpClient = new CurlHTTPClient(env('LINEBOT_TOKEN'));
         $bot = new LINEBot($httpClient, ['channelSecret' => env('LINEBOT_SECRET')]);
         $text = $request->events[0]['message']['text'];
         $user_id = $request->events[0]['source']['userId'];
 
+        if(count(Mobile::where('userId', $user_id)->get()) > 0 ){
+            $status = Mobile::where('userId', $user_id)->first()->status;
+                if($status == 3){
+                    Record::create([
+                        'userId' => $user_id,
+                        'key' => 'model',
+                        'value' => $text,
+                    ]);
+                    $param = Record::all()->toArray();
+                    $http = new Client();
+                    $response = $http->get('https://ptt-crawler-gdg.herokuapp.com/posts', $param);
+                    $replies = json_decode($response->getBody()->getContents());
+                    $replies = array_map(function ($p){
+                        return ['title' => $p->title, 'url' => $p->url];
+                    },$replies);
+                    Log::debug($replies);
+                    $msg = new MultiMessageBuilder();
+                    foreach ($replies as $reply)
+                    {
+                        $_msg = new TextMessageBuilder($reply);
+                        $msg->add($_msg);
+                    }
 
-        if(count($status = Mobile::where('user_id', $user_id)->get()) > 0 || count(Mobile::where('user_id', $user_id)->get()) > 0 || strpos($text, '手機')!==false){
-            if(count($status = Mobile::where('user_id', $user_id)->get()) > 0){
-                $status = Mobile::where('user_id', $user_id)->first()->status;
-                if($status == 4){
-                    $reply = "查詢結果:";
-                }
-                else if($status == 3){
-                    $reply = "請問您要搜尋的手機廠牌為:apple/asus/sony/三星/oppo/小米/華為?";
+                    $response = $bot->replyMessage($request->events[0]['replyToken'], $msg);
+                    DB::table('mobiles')->truncate();
+                    DB::table('records')->truncate();
+
                 }
                 else if($status == 2){
-                    $reply = "請問您要搜尋的縣市為："."";
+                    if(strpos($text, '')){
+                        $text = "賣";
+                    }elseif(strpos($text, '賣')) {
+                        $text = "買";
+                    }else{
+                        $text = "";
+                    }
+                    $reply = "請問您想要找什麼樣的手機? ex:iphone 6s";
+                    $user = Mobile::where('userId', $user_id)->first();
+                    $user->update(['text' => $text, 'status' => 3]);
+                    Record::create([
+                        'userId' => $user_id,
+                        'key' => 'country',
+                        'value' => $text,
+                    ]);
                 }
-                else if($status == 1){
-                    $reply = "請問您要搜尋的地區:北部/中部/南部/東部?"."";
-                    $user = Mobile::where('user_id', $user_id)->latest()->first();
+                else if($status == 1) {
+                    if(strpos($text, '買')){
+                        $text = "賣";
+                    }elseif(strpos($text, '賣')) {
+                        $text = "買";
+                    }else{
+                        $reply = "請問您想要購買/賣出手機?";
+                        $reply = new TextMessageBuilder($reply);
+                        $bot->replyMessage($request->events[0]['replyToken'], $reply);
+                        return;
+                    }
+                    $reply = "請問您要搜尋的縣市為? ex:台北/台中/台南"."";
+                    $user = Mobile::where('userId', $user_id)->first();
+                    $user->update(['text' => $text, 'status' => 2]);
+                    $reply = new TextMessageBuilder($reply);
+                    $bot->replyMessage($request->events[0]['replyToken'], $reply);
+                    Record::create([
+                        'userId' => $user_id,
+                        'key' => 'type',
+                        'value' => $text,
+                    ]);
                 }
-            }else{
-                $reply = "請問您想要購買/賣出手機?";
-                $status = 1;
-                Mobile::create([
-                    'user_id' => $user_id,
-                    'text' => $text,
-                    'status' => $status,
-                ]);
-            }
         } else{
-                $reply = "您好，請問我能為您提供什麼服務?";
+            $reply = "請問您想要購買/賣出手機?";
+            $status = 1;
+            Mobile::create([
+                'userId' => $user_id,
+                'text' => $text,
+                'status' => $status,
+            ]);
         }
         $reply = new TextMessageBuilder($reply);
         $response = $bot->replyMessage($request->events[0]['replyToken'], $reply);

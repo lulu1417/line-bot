@@ -14,7 +14,8 @@ class CreateMobilesTable extends Migration
     public function up()
     {
         Schema::create('mobiles', function (Blueprint $table) {
-            $table->string('user_id')->unique();
+            $table->bigIncrements('id');
+            $table->string('userId')->unique();
             $table->string('text');
             $table->integer('status');
             $table->timestamps();

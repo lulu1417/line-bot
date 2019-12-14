@@ -7,6 +7,6 @@ use Illuminate\Database\Eloquent\Model;
 class Record extends Model
 {
     protected $fillable = [
-        'user_id','type', 'zone', 'country', 'model'
+        'userId', 'key', 'value'
     ];
 }
