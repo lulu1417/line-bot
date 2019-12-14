@@ -16,4 +16,7 @@ use Illuminate\Http\Request;
 Route::post('store', 'BotController@store');
 Route::post('chat', 'BotController@chat');
 
+Route::post('test', 'BotController@dialog');
+Route::post('area', 'BotController@area');
+
 
