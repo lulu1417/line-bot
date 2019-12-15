@@ -38,37 +38,46 @@ class BotController extends Controller
 
     function chat(Request $request)
     {
-        Log::info($request->all());
+//        Log::info($request->all());
         $httpClient = new CurlHTTPClient(env('LINEBOT_TOKEN'));
         $bot = new LINEBot($httpClient, ['channelSecret' => env('LINEBOT_SECRET')]);
         $text = $request->events[0]['message']['text'];
         $user_id = $request->events[0]['source']['userId'];
         $dialog = $this->dialog($text);
-        Log::debug("dialog = $dialog");
-        Log::debug(strpos($dialog, 'Fallback'));
+        Log::debug($text."dialog = $dialog");
+//        Log::debug(strpos($dialog, 'Fallback'));
         if (count(Mobile::where('userId', $user_id)->get()) > 0) {
             $status = Mobile::where('userId', $user_id)->first()->status;
-            if ($status == 3) {
-                if (strpos($dialog, 'Fallback')!==false) {
-
-                    $reply = "請問您想要找什麼樣的手機? ex:iphone 6s";
+            if ($status == 4) {
+                if (is_numeric($text) == 0) {
+//                    Log::debug(is_numeric($text));
+                    $reply = "請問您想搜尋的價格為?";
                 }else{
+//                    Log::debug("price".(int)$text);
+                    $price_gte = (int)$text - 5000;
+                    $price_lte = (int)$text + 10000;
                     Record::create([
                         'userId' => $user_id,
-                        'key' => 'title_like',
-                        'value' => $text,
+                        'key' => 'price_lte',
+                        'value' => $price_lte,
+                    ]);
+                    Record::create([
+                        'userId' => $user_id,
+                        'key' => 'price_gte',
+                        'value' => $price_gte,
                     ]);
                     $param=[];
                     foreach (Record::all()->toArray() as $rec) {
                         $param[$rec['key']]=$rec['value'];
                     }
+
                     $param['_limit'] = 5;
 
                     $http = new Client();
                     $response = $http->request('GET',
                         'https://ptt-crawler-gdg.herokuapp.com/posts',
                         ['query' => $param]);
-                    Log::debug($param);
+//                    Log::debug($param);
                     $getbody = json_decode($response ->getBody()->getContents());
                     $getbody = array_map(function ($resp){
                         try{
@@ -86,22 +95,48 @@ class BotController extends Controller
                     $getbody = array_filter($getbody,function ($p){
                         return $p['title']!='' && $p['url']!='';
                     });
-                    Log::debug($getbody);
+//                    Log::debug($getbody);
+                    if(count($getbody) > 0){
+                        $msg = new MultiMessageBuilder();
 
+                        foreach ($getbody as $reply) {
+                            $_msg = new TextMessageBuilder($reply['title'].' '.$reply['url']);
+                            $msg->add($_msg);
+                        }
 
-                    $msg = new MultiMessageBuilder();
-                    foreach ($getbody as $reply) {
-                        $_msg = new TextMessageBuilder($reply['title'].' '.$reply['url']);
-                        $msg->add($_msg);
+                        $bot->replyMessage($request->events[0]['replyToken'], $msg);
+                    }else{
+                        $reply = "查無結果";
+                        $reply = new TextMessageBuilder($reply);
+                        $bot->replyMessage($request->events[0]['replyToken'], $reply);
                     }
-                    $bot->replyMessage($request->events[0]['replyToken'], $msg);
-                    DB::table('mobiles')->truncate();
-                    DB::table('records')->truncate();
+
+                    $users = Mobile::where('userId', $user_id)->get();
+                    $records = Record::where('userId', $user_id)->get();
+                    foreach ($users as $user){
+                        $user->delete();
+                    }
+                    foreach ($records as $record){
+                        $record->delete();
+                    }
                     return response()->json([$getbody]);
 
                 }
 
 
+            } else if ($status == 3) {
+                if (strpos($dialog, 'Fallback'!==false)) {
+                    $reply = "請問您想要找什麼樣的手機? ex:iphone 6s";
+                } else {
+                    $reply = "請問您想搜尋的價格為?";
+                    $user = Mobile::where('userId', $user_id)->first();
+                    $user->update(['text' => $text, 'status' => 4]);
+                    Record::create([
+                        'userId' => $user_id,
+                        'key' => 'title_like',
+                        'value' => $text,
+                    ]);
+                }
             } else if ($status == 2) {
                 if (strpos($dialog, 'Fallback'!==false)) {
                     $reply = "請問您要搜尋的縣市為? ex:台北/台中/台南";
@@ -151,58 +186,7 @@ class BotController extends Controller
         $response = $bot->replyMessage($request->events[0]['replyToken'], $reply);
 
         if ($response->isSucceeded()) {
-            Log::debug('Succeeded!');
-            return;
-        }
-    }
-
-    function test(Request $request)
-    {
-        Log::info($request->all());
-
-//        $client = new Client();
-//        $res_to = $client->request('POST', env('PASS_URL'), [
-//            'form_params' => [
-//                'title' => $request->title,
-//                'url' => $request->url,
-//                'country' => $request->country,
-//                'zone' => $request->zone,
-//                'model' => $request->model,
-//                'type' => $request->type,
-//                'date' => $request->date,
-//                'price' => $request->price,
-//            ]
-//        ]);
-//        $response = (string)$res_to->getBody();
-//        return $response;
-
-        $httpClient = new CurlHTTPClient(env('LINEBOT_TOKEN'));
-        $bot = new LINEBot($httpClient, ['channelSecret' => env('LINEBOT_SECRET')]);
-        $text = $request->events[0]['message']['text'];
-
-
-        $replies = [
-            'title' => "title:" . $request->title,
-            'url' => "url:" . $request->url,
-            'country' => "country:" . $request->country,
-            'zone' => "zone:" . $request->zone,
-            'model' => "model:" . $request->model,
-            'type' => "type:" . $request->type,
-            'date' => "date:" . $request->date,
-            'price' => "price:" . $request->price,
-        ];
-        $reply = "請輸入欲查詢的地區";
-
-        $msg = new MultiMessageBuilder();
-        foreach ($replies as $reply) {
-            $_msg = new TextMessageBuilder($reply);
-            $msg->add($_msg);
-        }
-
-
-        $response = $bot->replyMessage($request->events[0]['replyToken'], $msg);
-        if ($response->isSucceeded()) {
-            Log::debug('Succeeded!');
+//            Log::debug('Succeeded!');
             return;
         }
     }
