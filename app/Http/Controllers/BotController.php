@@ -31,17 +31,28 @@ class BotController extends Controller
         Log::debug($dialog->content());
         if (count(Mobile::where('userId', $user_id)->get()) > 0) {
             $status = Mobile::where('userId', $user_id)->first()->status;
-            if((strpos($dialog->content(), 'Go back to the previous step') && $status != 1 )){
-                Log::debug("status = ".$status);
+            if ((strpos($dialog->content(), 'Go back to the previous step') && $status != 1)) {
+                Log::debug("status = " . $status);
                 $status -= 1;
                 $user = Mobile::where('userId', $user_id)->first();
                 $user->update(['text' => $text, 'status' => $status]);
-                Log::debug("status = ".$status);
+                Log::debug("status = " . $status);
             }
-            if ($status == 4) {
+            if ($status == 5) {
+                $users = Mobile::where('userId', $user_id)->get();
+                $records = Record::where('userId', $user_id)->get();
+                $reply = "謝謝惠顧";
+                foreach ($users as $user) {
+                    $user->delete();
+                }
+                foreach ($records as $record) {
+                    $record->delete();
+                }
+
+            } elseif ($status == 4) {
                 if (is_numeric($text) == 0) {
                     $reply = "請問您想搜尋的價格為?";
-                }else{
+                } else {
                     $price_gte = (int)$text - 3500;
                     $price_lte = (int)$text + 3500;
                     Record::create([
@@ -54,9 +65,9 @@ class BotController extends Controller
                         'key' => 'price_gte',
                         'value' => $price_gte,
                     ]);
-                    $param=[];
+                    $param = [];
                     foreach (Record::all()->toArray() as $rec) {
-                        $param[$rec['key']]=$rec['value'];
+                        $param[$rec['key']] = $rec['value'];
                     }
 
                     $param['_limit'] = 5;
@@ -65,15 +76,15 @@ class BotController extends Controller
                     $response = $http->request('GET',
                         'https://ptt-crawler-gdg.herokuapp.com/posts',
                         ['query' => $param]);
-                    $getbody = json_decode($response ->getBody()->getContents());
-                    $getbody = array_map(function ($resp){
-                        try{
+                    $getbody = json_decode($response->getBody()->getContents());
+                    $getbody = array_map(function ($resp) {
+                        try {
                             return [
                                 'title' => $resp->title,
-                                'url'=> $resp->url,
+                                'url' => $resp->url,
                                 'price' => $resp->price,
                             ];
-                        }catch (ErrorException $e){
+                        } catch (ErrorException $e) {
                             return [
                                 'title' => '',
                                 'url' => '',
@@ -81,33 +92,26 @@ class BotController extends Controller
                             ];
                         }
                     }, $getbody);
-                    $getbody = array_filter($getbody,function ($p){
-                        return $p['title']!=''&& $p['price']!=''&&  $p['url']!='';
+                    $getbody = array_filter($getbody, function ($p) {
+                        return $p['title'] != '' && $p['price'] != '' && $p['url'] != '';
                     });
 
-                    if(count($getbody) > 0){
+                    if (count($getbody) > 0) {
                         $msg = new MultiMessageBuilder();
                         foreach ($getbody as $reply) {
-                            $_msg = new TextMessageBuilder($reply['title']."\n$".$reply['price'].' '."\n".$reply['url']);
+                            $_msg = new TextMessageBuilder($reply['title'] . "\n$" . $reply['price'] . ' ' . "\n" . $reply['url']);
                             $msg->add($_msg);
                         }
-
                         $bot->replyMessage($request->events[0]['replyToken'], $msg);
-                    }else{
+                    } else {
                         $reply = "查無結果";
                         $reply = new TextMessageBuilder($reply);
                         $bot->replyMessage($request->events[0]['replyToken'], $reply);
                     }
-
-                    $users = Mobile::where('userId', $user_id)->get();
-                    $records = Record::where('userId', $user_id)->get();
-                    foreach ($users as $user){
-                        $user->delete();
-                    }
-                    foreach ($records as $record){
-                        $record->delete();
-                    }
+                    $user = Mobile::where('userId', $user_id)->first();
+                    $user->update(['text' => $text, 'status' => 5]);
                     return response()->json([$getbody]);
+
                 }
 
             } else if ($status == 3) {
@@ -142,7 +146,7 @@ class BotController extends Controller
                     $reply = new TextMessageBuilder($reply);
                     $bot->replyMessage($request->events[0]['replyToken'], $reply);
                     return;
-                } elseif (strpos($dialog->content(),'step1-ask transaction_buy')) {
+                } elseif (strpos($dialog->content(), 'step1-ask transaction_buy')) {
                     $text = "sell";
                 } elseif (strpos($dialog->content(), 'step1-ask transaction_sale')) {
                     $text = "buy";
