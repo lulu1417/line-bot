@@ -6,9 +6,6 @@ use App\Mobile;
 use App\Product;
 use App\Record;
 use ErrorException;
-use http\Exception;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use LINE\LINEBot;
@@ -16,46 +13,37 @@ use LINE\LINEBot\HTTPClient\CurlHTTPClient;
 use LINE\LINEBot\MessageBuilder\TextMessageBuilder;
 use LINE\LINEBot\MessageBuilder\MultiMessageBuilder;
 use GuzzleHttp\Client;
-use LINE\LINEBot\RichMenuBuilder;
-use LINE\LINEBot\RichMenuBuilder\RichMenuAreaBoundsBuilder;
-use LINE\LINEBot\RichMenuBuilder\RichMenuAreaBuilder;
-use LINE\LINEBot\RichMenuBuilder\RichMenuSizeBuilder;
-use LINE\LINEBot\TemplateActionBuilder\MessageTemplateActionBuilder;
-use App\fc;
 use Google\Cloud\Dialogflow\V2\SessionsClient;
-use Google\Cloud\Dialogflow\V2\IntentsClient;
 use Google\Cloud\Dialogflow\V2\TextInput;
 use Google\Cloud\Dialogflow\V2\QueryInput;
 use Response;
-use Google\Cloud\Dialogflow\V2\Intent;
-use Google\Cloud\Dialogflow\V2\Intent\TrainingPhrase\Part;
-use Google\Cloud\Dialogflow\V2\Intent\TrainingPhrase;
-use Google\Cloud\Dialogflow\V2\Intent\Message;
-use Google\Cloud\Dialogflow\V2\Intent\Message\Text;
 
 class BotController extends Controller
 {
-
     function chat(Request $request)
     {
-//        Log::info($request->all());
         $httpClient = new CurlHTTPClient(env('LINEBOT_TOKEN'));
         $bot = new LINEBot($httpClient, ['channelSecret' => env('LINEBOT_SECRET')]);
         $text = $request->events[0]['message']['text'];
         $user_id = $request->events[0]['source']['userId'];
         $dialog = $this->dialog($text);
-        Log::debug($text."dialog = $dialog");
-//        Log::debug(strpos($dialog, 'Fallback'));
+        Log::info($text);
+        Log::debug($dialog->content());
         if (count(Mobile::where('userId', $user_id)->get()) > 0) {
             $status = Mobile::where('userId', $user_id)->first()->status;
+            if((strpos($dialog->content(), 'Go back to the previous step') && $status != 1 )){
+                Log::debug("status = ".$status);
+                $status -= 1;
+                $user = Mobile::where('userId', $user_id)->first();
+                $user->update(['text' => $text, 'status' => $status]);
+                Log::debug("status = ".$status);
+            }
             if ($status == 4) {
                 if (is_numeric($text) == 0) {
-//                    Log::debug(is_numeric($text));
                     $reply = "請問您想搜尋的價格為?";
                 }else{
-//                    Log::debug("price".(int)$text);
-                    $price_gte = (int)$text - 5000;
-                    $price_lte = (int)$text + 10000;
+                    $price_gte = (int)$text - 3500;
+                    $price_lte = (int)$text + 3500;
                     Record::create([
                         'userId' => $user_id,
                         'key' => 'price_lte',
@@ -77,30 +65,30 @@ class BotController extends Controller
                     $response = $http->request('GET',
                         'https://ptt-crawler-gdg.herokuapp.com/posts',
                         ['query' => $param]);
-//                    Log::debug($param);
                     $getbody = json_decode($response ->getBody()->getContents());
                     $getbody = array_map(function ($resp){
                         try{
                             return [
                                 'title' => $resp->title,
-                                'url'=>$resp->url
+                                'url'=> $resp->url,
+                                'price' => $resp->price,
                             ];
                         }catch (ErrorException $e){
                             return [
                                 'title' => '',
-                                'url' => ''
+                                'url' => '',
+                                'price' => '',
                             ];
                         }
                     }, $getbody);
                     $getbody = array_filter($getbody,function ($p){
-                        return $p['title']!='' && $p['url']!='';
+                        return $p['title']!=''&& $p['price']!=''&&  $p['url']!='';
                     });
-//                    Log::debug($getbody);
+
                     if(count($getbody) > 0){
                         $msg = new MultiMessageBuilder();
-
                         foreach ($getbody as $reply) {
-                            $_msg = new TextMessageBuilder($reply['title'].' '.$reply['url']);
+                            $_msg = new TextMessageBuilder($reply['title']."\n$".$reply['price'].' '."\n".$reply['url']);
                             $msg->add($_msg);
                         }
 
@@ -120,12 +108,10 @@ class BotController extends Controller
                         $record->delete();
                     }
                     return response()->json([$getbody]);
-
                 }
 
-
             } else if ($status == 3) {
-                if (strpos($dialog, 'Fallback'!==false)) {
+                if (!strpos($dialog->content(), 'step3-reply labels - custom')) {
                     $reply = "請問您想要找什麼樣的手機? ex:iphone 6s";
                 } else {
                     $reply = "請問您想搜尋的價格為?";
@@ -138,7 +124,7 @@ class BotController extends Controller
                     ]);
                 }
             } else if ($status == 2) {
-                if (strpos($dialog, 'Fallback'!==false)) {
+                if (!strpos($dialog->content(), 'step2-reply county')) {
                     $reply = "請問您要搜尋的縣市為? ex:台北/台中/台南";
                 } else {
                     $reply = "請問您想要找什麼樣的手機? ex:iphone 6s";
@@ -151,16 +137,15 @@ class BotController extends Controller
                     ]);
                 }
             } else if ($status == 1) {
-                if (strpos($dialog, 'Fallback')!==false) {
+                if (!strpos($dialog->content(), 'step1-ask')) {
                     $reply = "您好，很高興為您服務。請問您想要購買或賣出手機?";
                     $reply = new TextMessageBuilder($reply);
                     $bot->replyMessage($request->events[0]['replyToken'], $reply);
                     return;
-                } elseif (strpos($text, '賣')!==false) {
-                    $text = "buy";
-                } elseif (strpos($text, '買')!==false) {
+                } elseif (strpos($dialog->content(),'step1-ask transaction_buy')) {
                     $text = "sell";
-
+                } elseif (strpos($dialog->content(), 'step1-ask transaction_sale')) {
+                    $text = "buy";
                 }
                 $reply = "請問您要搜尋的縣市為? ex:台北/台中/台南";
                 $user = Mobile::where('userId', $user_id)->first();
@@ -186,7 +171,6 @@ class BotController extends Controller
         $response = $bot->replyMessage($request->events[0]['replyToken'], $reply);
 
         if ($response->isSucceeded()) {
-//            Log::debug('Succeeded!');
             return;
         }
     }
