@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Mobile;
-use App\Product;
 use App\Record;
 use ErrorException;
 use Illuminate\Http\Request;
@@ -68,9 +67,10 @@ class BotController extends Controller
                             'value' => $price_gte,
                         ]);
                     }
-
                     $param = [];
-                    foreach (Record::all()->toArray() as $rec) {
+                    $keywords = Record::where('userId',$user_id)->get()->toArray();
+                    Log::debug($keywords);
+                    foreach ($keywords as $rec) {
                         $param[$rec['key']] = $rec['value'];
                     }
                     $param['_limit'] = 5;
