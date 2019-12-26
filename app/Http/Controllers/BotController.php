@@ -27,6 +27,7 @@ class BotController extends Controller
         $text = $request->events[0]['message']['text'];
         $user_id = $request->events[0]['source']['userId'];
         $dialog = $this->dialog($text);
+        $notall = strpos($text, '都可') === false;
         Log::info($text);
         Log::debug($dialog->content());
         if (count(Mobile::where('userId', $user_id)->get()) > 0) {
@@ -41,7 +42,7 @@ class BotController extends Controller
             if ($status == 5) {
                 $users = Mobile::where('userId', $user_id)->get();
                 $records = Record::where('userId', $user_id)->get();
-                $reply = "謝謝惠顧";
+                $reply = '感謝您的使用';
                 foreach ($users as $user) {
                     $user->delete();
                 }
@@ -50,28 +51,29 @@ class BotController extends Controller
                 }
 
             } elseif ($status == 4) {
-                if (is_numeric($text) == 0) {
+                if (is_numeric($text) == 0 && $notall == 1) {
                     $reply = "請問您想搜尋的價格為?";
                 } else {
-                    $price_gte = (int)$text - 3500;
-                    $price_lte = (int)$text + 3500;
-                    Record::create([
-                        'userId' => $user_id,
-                        'key' => 'price_lte',
-                        'value' => $price_lte,
-                    ]);
-                    Record::create([
-                        'userId' => $user_id,
-                        'key' => 'price_gte',
-                        'value' => $price_gte,
-                    ]);
+                    if (!is_numeric($text) == 0) {
+                        $price_gte = (int)$text - 2000;
+                        $price_lte = (int)$text + 2000;
+                        Record::create([
+                            'userId' => $user_id,
+                            'key' => 'price_lte',
+                            'value' => $price_lte,
+                        ]);
+                        Record::create([
+                            'userId' => $user_id,
+                            'key' => 'price_gte',
+                            'value' => $price_gte,
+                        ]);
+                    }
+
                     $param = [];
                     foreach (Record::all()->toArray() as $rec) {
                         $param[$rec['key']] = $rec['value'];
                     }
-
                     $param['_limit'] = 5;
-
                     $http = new Client();
                     $response = $http->request('GET',
                         'https://ptt-crawler-gdg.herokuapp.com/posts',
@@ -115,30 +117,36 @@ class BotController extends Controller
                 }
 
             } else if ($status == 3) {
-                if (!strpos($dialog->content(), 'step3-reply labels - custom')) {
+                if (!strpos($dialog->content(), 'step3-reply labels - custom') && $notall == 1) {
                     $reply = "請問您想要找什麼樣的手機? ex:iphone 6s";
                 } else {
+                    if (strpos($dialog->content(), 'step3-reply labels - custom')) {
+                        Record::create([
+                            'userId' => $user_id,
+                            'key' => 'title_like',
+                            'value' => $text,
+                        ]);
+                    }
                     $reply = "請問您想搜尋的價格為?";
                     $user = Mobile::where('userId', $user_id)->first();
                     $user->update(['text' => $text, 'status' => 4]);
-                    Record::create([
-                        'userId' => $user_id,
-                        'key' => 'title_like',
-                        'value' => $text,
-                    ]);
+
                 }
             } else if ($status == 2) {
-                if (!strpos($dialog->content(), 'step2-reply county')) {
+                if (!strpos($dialog->content(), 'step2-reply county') && $notall == 1) {
                     $reply = "請問您要搜尋的縣市為? ex:台北/台中/台南";
                 } else {
+                    if (strpos($dialog->content(), 'step2-reply county')) {
+                        Record::create([
+                            'userId' => $user_id,
+                            'key' => 'county_like',
+                            'value' => $text,
+                        ]);
+                    }
                     $reply = "請問您想要找什麼樣的手機? ex:iphone 6s";
                     $user = Mobile::where('userId', $user_id)->first();
                     $user->update(['text' => $text, 'status' => 3]);
-                    Record::create([
-                        'userId' => $user_id,
-                        'key' => 'county_like',
-                        'value' => $text,
-                    ]);
+
                 }
             } else if ($status == 1) {
                 if (!strpos($dialog->content(), 'step1-ask')) {
