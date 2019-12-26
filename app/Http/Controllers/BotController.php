@@ -27,7 +27,7 @@ class BotController extends Controller
         $text = $request->events[0]['message']['text'];
         $user_id = $request->events[0]['source']['userId'];
         $dialog = $this->dialog($text);
-        $notall = strpos($text, '都可') === false;
+        $noLimit = !strpos($dialog->content(), 'Vague response');
         Log::info($text);
         Log::debug($dialog->content());
         if (count(Mobile::where('userId', $user_id)->get()) > 0) {
@@ -51,7 +51,7 @@ class BotController extends Controller
                 }
 
             } elseif ($status == 4) {
-                if (is_numeric($text) == 0 && $notall == 1) {
+                if (is_numeric($text) == 0 && $noLimit == 1) {
                     $reply = "請問您想搜尋的價格為?";
                 } else {
                     if (!is_numeric($text) == 0) {
@@ -117,7 +117,7 @@ class BotController extends Controller
                 }
 
             } else if ($status == 3) {
-                if (!strpos($dialog->content(), 'step3-reply labels - custom') && $notall == 1) {
+                if (!strpos($dialog->content(), 'step3-reply labels - custom') && $noLimit == 1) {
                     $reply = "請問您想要找什麼樣的手機? ex:iphone 6s";
                 } else {
                     if (strpos($dialog->content(), 'step3-reply labels - custom')) {
@@ -133,7 +133,7 @@ class BotController extends Controller
 
                 }
             } else if ($status == 2) {
-                if (!strpos($dialog->content(), 'step2-reply county') && $notall == 1) {
+                if (!strpos($dialog->content(), 'step2-reply county') && $noLimit == 1) {
                     $reply = "請問您要搜尋的縣市為? ex:台北/台中/台南";
                 } else {
                     if (strpos($dialog->content(), 'step2-reply county')) {
